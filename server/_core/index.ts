@@ -7,6 +7,7 @@ import { publicPlatformScript } from "./publicConfig";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { registerControlProxy } from "../controlProxy";
 
 async function startServer() {
   const app = express();
@@ -19,6 +20,8 @@ async function startServer() {
     res.set("Cache-Control", "no-store").type("application/javascript").send(publicPlatformScript());
   });
   registerOAuthRoutes(app);
+  app.use("/api/control/files/upload", express.raw({ type: "multipart/form-data", limit: "200mb" }));
+  registerControlProxy(app, server);
   // tRPC API
   app.use(
     "/api/trpc",

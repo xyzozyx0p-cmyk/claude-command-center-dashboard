@@ -88,4 +88,17 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
+export async function getUserByUsername(username: string) {
+  const db = await getDb();
+  if (!db || !username) return undefined;
+  const result = await db.select().from(users).where(eq(users.username, username)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function touchUser(openId: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ lastSignedIn: new Date() }).where(eq(users.openId, openId));
+}
+
 // TODO: add feature queries here as your schema grows.

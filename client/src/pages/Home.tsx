@@ -28,7 +28,6 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { startLogin } from "@/const";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { cn } from "@/lib/utils";
 
@@ -93,7 +92,7 @@ function SectionTitle({ eyebrow, title, detail, action }: { eyebrow: string; tit
 }
 
 export default function Home() {
-  const auth = useAuth({ redirectOnUnauthenticated: true });
+  const auth = useAuth();
   const [view, setView] = useState<View>("overview");
   const [status, setStatus] = useState<Status | null>(null);
   const [models, setModels] = useState<ModelsResponse | null>(null);
@@ -110,6 +109,10 @@ export default function Home() {
   const [terminalOutput, setTerminalOutput] = useState("Terminal session is not connected. Start it to attach to tmux.\n");
   const [terminalConnected, setTerminalConnected] = useState(false);
   const [terminalInput, setTerminalInput] = useState("");
+  const [loginUsername, setLoginUsername] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [loginBusy, setLoginBusy] = useState(false);
   const terminalRef = useRef<WebSocket | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -292,6 +295,21 @@ export default function Home() {
     }
   };
 
+  const login = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setLoginBusy(true);
+    setLoginError(null);
+    try {
+      await api("/api/auth/login", jsonInit({ username: loginUsername, password: loginPassword }));
+      setLoginPassword("");
+      await auth.refresh();
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : "Не удалось войти");
+    } finally {
+      setLoginBusy(false);
+    }
+  };
+
   const nav = useMemo(() => [
     { id: "overview" as const, label: "Обзор", icon: Activity },
     { id: "tasks" as const, label: "Задания", icon: Bot },
@@ -300,7 +318,7 @@ export default function Home() {
   ], []);
 
   if (auth.loading) return <div className="boot-screen"><div className="brand-mark">CC</div><span>Синхронизация с командным центром…</span></div>;
-  if (!auth.isAuthenticated) return <div className="boot-screen"><ShieldCheck size={24} /><button className="primary-button" onClick={startLogin}>Войти через Manus</button></div>;
+  if (!auth.isAuthenticated) return <main className="boot-screen"><form className="login-card" onSubmit={login}><div className="brand-mark">CC</div><h1>Claude Command Center</h1><p>Введите логин и пароль оператора, чтобы открыть защищённую панель.</p>{loginError && <div className="login-error">{loginError}</div>}<div className="login-form"><label>Логин<input autoComplete="username" value={loginUsername} onChange={event => setLoginUsername(event.target.value)} required /></label><label>Пароль<input type="password" autoComplete="current-password" value={loginPassword} onChange={event => setLoginPassword(event.target.value)} required minLength={12} /></label><button className="primary-button" type="submit" disabled={loginBusy}>{loginBusy ? "Проверка…" : "Войти"}</button></div></form></main>;
 
   const sessionOnline = Boolean(status?.sessions?.includes("claude"));
   const working = Boolean(busy);

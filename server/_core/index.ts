@@ -8,6 +8,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { registerControlProxy } from "../controlProxy";
+import { registerLocalAuthRoutes } from "../localAuthRoutes";
 
 async function startServer() {
   const app = express();
@@ -19,6 +20,7 @@ async function startServer() {
   app.get("/api/platform/config.js", (_req, res) => {
     res.set("Cache-Control", "no-store").type("application/javascript").send(publicPlatformScript());
   });
+  registerLocalAuthRoutes(app);
   registerOAuthRoutes(app);
   app.use("/api/control/files/upload", express.raw({ type: "multipart/form-data", limit: "200mb" }));
   registerControlProxy(app, server);

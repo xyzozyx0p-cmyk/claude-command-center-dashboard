@@ -35,6 +35,13 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 
 .boot-screen { min-height: 100vh; display: grid; place-items: center; gap: 16px; color: var(--muted); background: radial-gradient(circle at 50% 38%, #20221e, var(--bg) 45%); }
 .boot-screen .brand-mark { margin: 0 auto; }
+.login-card { width: min(420px, calc(100vw - 32px)); padding: 30px; border: 1px solid var(--line); border-radius: 14px; background: rgba(17,20,23,.94); box-shadow: 0 24px 80px rgba(0,0,0,.35); }
+.login-card h1 { margin: 18px 0 8px; color: var(--text); font-size: 27px; letter-spacing: -.04em; }
+.login-card p { margin: 0 0 24px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.login-form { display: grid; gap: 13px; }
+.login-form label { display: grid; gap: 7px; color: var(--muted-2); font: 10px "IBM Plex Mono", monospace; letter-spacing: .08em; text-transform: uppercase; }
+.login-form input { width: 100%; padding: 12px; border-radius: 8px; font-size: 14px; }
+.login-error { margin: 0 0 12px; padding: 10px; color: var(--red); border: 1px solid rgba(239,107,115,.3); border-radius: 7px; background: rgba(239,107,115,.08); font-size: 12px; }
 
 .app-shell { min-height: 100vh; display: flex; background: var(--bg); }
 .sidebar { width: 246px; min-height: 100vh; padding: 24px 14px 18px; display: flex; flex-direction: column; border-right: 1px solid var(--line); background: #0d1012; }

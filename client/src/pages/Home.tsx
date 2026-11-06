@@ -13,6 +13,7 @@ import {
   Folder,
   LogOut,
   Menu,
+  Paperclip,
   Play,
   RefreshCw,
   RotateCw,
@@ -27,7 +28,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { cn } from "@/lib/utils";
 
@@ -38,6 +39,8 @@ type FileEntry = { name: string; path: string; type: "directory" | "file"; size:
 type FilesResponse = { ok: boolean; path: string; entries: FileEntry[] };
 type InfraResponse = { ok: boolean; checks: Array<{ name: string; ok: boolean; detail: string }> };
 type Message = { id: string; role: "operator" | "system"; text: string; time: string; state?: "accepted" | "error" };
+type Attachment = { name: string; path: string; size: number; type: string };
+type CommandSuggestion = { name: string; source: string };
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { credentials: "include", ...init });
@@ -113,8 +116,14 @@ export default function Home() {
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginBusy, setLoginBusy] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [commandSuggestions, setCommandSuggestions] = useState<CommandSuggestion[]>([]);
+  const [commandSuggestionIndex, setCommandSuggestionIndex] = useState(0);
+  const [commandsLoading, setCommandsLoading] = useState(false);
   const terminalRef = useRef<WebSocket | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const refreshCore = useCallback(async () => {
     try {
@@ -159,17 +168,39 @@ export default function Home() {
 
   useEffect(() => () => terminalRef.current?.close(), []);
 
+  useEffect(() => {
+    const match = message.match(/^\/(\S*)$/);
+    if (!auth.isAuthenticated || !match) {
+      setCommandSuggestions([]);
+      setCommandsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setCommandsLoading(true);
+    const timer = window.setTimeout(() => {
+      void api<{ commands: CommandSuggestion[] }>(`/api/control/claude/commands?q=${encodeURIComponent(match[1])}`)
+        .then(result => { if (!cancelled) { setCommandSuggestions(result.commands); setCommandSuggestionIndex(0); } })
+        .catch(() => { if (!cancelled) setCommandSuggestions([]); })
+        .finally(() => { if (!cancelled) setCommandsLoading(false); });
+    }, 180);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [auth.isAuthenticated, message]);
+
   const sendMessage = async () => {
     const value = message.trim();
-    if (!value || busy) return;
+    if ((!value && attachments.length === 0) || busy) return;
     setBusy("message");
     setMessage("");
-    const entry: Message = { id: crypto.randomUUID(), role: "operator", text: value, time: timeLabel() };
+    setCommandSuggestions([]);
+    const attachmentNote = attachments.length ? `\n\nПрикреплённые файлы (прочитай их из workspace):\n${attachments.map(item => `- ${item.path}`).join("\n")}` : "";
+    const outbound = `${value}${attachmentNote}`.trim();
+    const entry: Message = { id: crypto.randomUUID(), role: "operator", text: outbound, time: timeLabel() };
     setMessages(current => [...current, entry]);
     try {
-      await api("/api/control/claude/message", jsonInit({ message: value, session: "claude" }));
+      await api("/api/control/claude/message", jsonInit({ message: outbound, session: "claude" }));
       setMessages(current => current.map(item => item.id === entry.id ? { ...item, state: "accepted" } : item));
       setNotice("Задание принято persistent-сессией Claude");
+      setAttachments([]);
       setTimeout(() => void refreshCore(), 700);
     } catch (error) {
       setMessages(current => current.map(item => item.id === entry.id ? { ...item, state: "error" } : item));
@@ -177,6 +208,46 @@ export default function Home() {
     } finally {
       setBusy(null);
     }
+  };
+
+  const uploadAttachments = async (filesToUpload: File[]) => {
+    if (!filesToUpload.length || busy) return;
+    setBusy("attachment");
+    try {
+      const uploaded: Attachment[] = [];
+      for (const file of filesToUpload) {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(-160) || "attachment";
+        const path = `instabox-24-7-agent/.claude-dashboard-attachments/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
+        const form = new FormData();
+        form.append("path", path);
+        form.append("file", file);
+        await api(`/api/control/files/upload?path=${encodeURIComponent(path)}`, { method: "POST", body: form });
+        uploaded.push({ name: file.name, path, size: file.size, type: file.type || "application/octet-stream" });
+      }
+      setAttachments(current => [...current, ...uploaded]);
+      setNotice(`${uploaded.length} файл(а) прикреплено`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Не удалось прикрепить файл");
+    } finally {
+      setBusy(null);
+      if (attachmentInputRef.current) attachmentInputRef.current.value = "";
+    }
+  };
+
+  const chooseCommand = (name: string) => {
+    setMessage(`${name} `);
+    setCommandSuggestions([]);
+    window.setTimeout(() => messageInputRef.current?.focus(), 0);
+  };
+
+  const handleMessageKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (commandSuggestions.length) {
+      if (event.key === "ArrowDown") { event.preventDefault(); setCommandSuggestionIndex(index => (index + 1) % commandSuggestions.length); return; }
+      if (event.key === "ArrowUp") { event.preventDefault(); setCommandSuggestionIndex(index => (index - 1 + commandSuggestions.length) % commandSuggestions.length); return; }
+      if (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.metaKey)) { event.preventDefault(); chooseCommand(commandSuggestions[commandSuggestionIndex].name); return; }
+      if (event.key === "Escape") { event.preventDefault(); setCommandSuggestions([]); return; }
+    }
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") void sendMessage();
   };
 
   const startClaude = async () => {
@@ -353,7 +424,7 @@ export default function Home() {
               <div className="metric-card"><div className="metric-icon"><Wifi size={18} /></div><div><span>Cloudflare layer</span><strong>{infra?.checks.find(item => item.name === "Cloudflare watchdog")?.ok ? "REACHABLE" : "CHECKING"}</strong><small>third control layer</small></div><StatusPill ok={Boolean(infra?.checks.find(item => item.name === "Cloudflare watchdog")?.ok)} label="monitor" /></div>
             </div>
             <div className="work-grid">
-              <section className="panel composer-panel"><div className="panel-heading"><div><div className="eyebrow">TASK DISPATCH</div><h3>Новое задание</h3></div><span className="kbd">claude</span></div><textarea value={message} onChange={event => setMessage(event.target.value)} onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") void sendMessage(); }} placeholder="Опишите, что нужно сделать…" rows={6} /><div className="composer-footer"><span><Command size={14} /> Ctrl / ⌘ + Enter для отправки</span><button className="primary-button" onClick={() => void sendMessage()} disabled={!message.trim() || Boolean(busy)}><Send size={15} /> {busy === "message" ? "Отправка…" : "Отправить"}</button></div><div className="quick-actions"><button onClick={() => void startClaude()} disabled={Boolean(busy)}><Play size={14} /> Запустить Claude</button><button onClick={() => setView("terminal")}><Terminal size={14} /> Открыть терминал</button></div></section>
+              <section className="panel composer-panel"><div className="panel-heading"><div><div className="eyebrow">TASK DISPATCH</div><h3>Новое задание</h3></div><span className="kbd">claude</span></div><div className="message-editor"><textarea ref={messageInputRef} value={message} onChange={event => setMessage(event.target.value)} onKeyDown={handleMessageKeyDown} placeholder="Опишите, что нужно сделать… Введите / для актуальных команд Claude" rows={6} />{(commandSuggestions.length > 0 || commandsLoading) && <div className="command-suggestions"><div className="suggestion-caption">Команды из текущего workspace {commandsLoading && "· обновление…"}</div>{commandSuggestions.map((item, index) => <button type="button" className={cn("command-suggestion", index === commandSuggestionIndex && "command-suggestion--active")} key={`${item.source}-${item.name}`} onMouseDown={event => { event.preventDefault(); chooseCommand(item.name); }}><strong>{item.name}</strong><span>{item.source}</span></button>)}</div>}</div>{attachments.length > 0 && <div className="attachment-list">{attachments.map(item => <div className="attachment-chip" key={item.path}><Paperclip size={13} /><span title={item.path}>{item.name}</span><button type="button" onClick={() => setAttachments(current => current.filter(file => file.path !== item.path))}><X size={13} /></button></div>)}</div>}<div className="composer-footer"><span><Command size={14} /> Ctrl / ⌘ + Enter · Tab выбирает команду</span><div className="composer-actions"><input ref={attachmentInputRef} type="file" hidden multiple accept="image/*,.pdf,.txt,.md,.json,.csv,.zip,.tar,.gz" onChange={event => void uploadAttachments(Array.from(event.target.files || []))} /><button className="secondary-button" type="button" onClick={() => attachmentInputRef.current?.click()} disabled={Boolean(busy)}><Paperclip size={14} /> Файл или изображение</button><button className="primary-button" onClick={() => void sendMessage()} disabled={(!message.trim() && attachments.length === 0) || Boolean(busy)}><Send size={15} /> {busy === "attachment" ? "Загрузка…" : busy === "message" ? "Отправка…" : "Отправить"}</button></div></div><div className="quick-actions"><button onClick={() => void startClaude()} disabled={Boolean(busy)}><Play size={14} /> Запустить Claude</button><button onClick={() => setView("terminal")}><Terminal size={14} /> Открыть терминал</button></div></section>
               <section className="panel model-panel"><div className="panel-heading"><div><div className="eyebrow">MODEL ROUTING</div><h3>Активная модель</h3></div><Cpu size={18} className="muted-icon" /></div><div className="model-current"><span className="model-pulse" /><strong>{models?.current || "not selected"}</strong></div><label className="field-label">Выбрать модель</label><select value={models?.current || ""} onChange={event => void selectModel(event.target.value)} disabled={!models?.models?.length || Boolean(busy)}><option value="" disabled>Модели загрузятся через proxy</option>{models?.models?.map(model => <option key={model.alias} value={model.alias}>{model.alias}</option>)}</select><div className="model-footer"><span>{models?.models?.length || 0} моделей доступно</span><button className="text-button" onClick={() => void refreshCore()}>Синхронизировать <RotateCw size={13} /></button></div></section>
             </div>
             <section className="panel output-panel"><div className="panel-heading"><div><div className="eyebrow">LIVE OUTPUT</div><h3>Вывод Claude</h3></div><div className="panel-actions"><span className="streaming-badge"><span /> polling 5s</span><button className="icon-button" onClick={() => setOutput("")} title="Clear"><X size={14} /></button></div></div><pre className="terminal-output">{output || "Ожидание вывода persistent-сессии…"}</pre></section>

@@ -105,6 +105,20 @@ textarea:focus, input:focus, select:focus { border-color: rgba(242,169,0,.7); bo
 textarea::placeholder, input::placeholder { color: var(--muted-2); }
 .composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 13px; color: var(--muted-2); font: 10px "IBM Plex Mono", monospace; }
 .composer-footer span { display: flex; align-items: center; gap: 6px; }
+.message-editor { position: relative; }
+.command-suggestions { position: absolute; z-index: 5; right: 10px; bottom: 10px; left: 10px; max-height: 220px; overflow: auto; padding: 6px; border: 1px solid rgba(242,169,0,.32); border-radius: 8px; background: #111619; box-shadow: 0 15px 40px rgba(0,0,0,.4); }
+.suggestion-caption { padding: 6px 8px 8px; color: var(--muted-2); font: 9px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .08em; }
+.command-suggestion { width: 100%; display: flex; align-items: center; gap: 9px; padding: 8px; color: var(--text); border-radius: 6px; background: transparent; text-align: left; }
+.command-suggestion:hover, .command-suggestion--active { background: var(--amber-soft); }
+.command-suggestion strong { color: var(--amber); font: 11px "IBM Plex Mono", monospace; }
+.command-suggestion span { margin-left: auto; color: var(--muted-2); font: 9px "IBM Plex Mono", monospace; }
+.attachment-list { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+.attachment-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 6px 8px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-size: 11px; }
+.attachment-chip svg:first-child { color: var(--amber); flex: none; }
+.attachment-chip span { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attachment-chip button { display: grid; place-items: center; padding: 0; color: var(--muted-2); background: transparent; }
+.attachment-chip button:hover { color: var(--red); }
+.composer-actions { display: flex; align-items: center; gap: 8px; }
 .primary-button, .secondary-button, .quick-actions button, .text-button, .icon-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; transition: all .18s; }
 .primary-button { padding: 10px 14px; color: #131313; background: var(--amber); border-radius: 7px; font-size: 12px; font-weight: 700; }
 .primary-button:hover { background: #ffc12f; box-shadow: 0 5px 20px rgba(242,169,0,.15); }

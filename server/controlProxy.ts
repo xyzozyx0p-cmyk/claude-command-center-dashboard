@@ -70,6 +70,50 @@ export function registerControlProxy(app: Express, server: import("node:http").S
   app.post("/api/control/models/select", (req, res) => forwardJson(req, res, "/v1/models/select", "POST").catch(() => res.status(502).json({ ok: false, error: "control_plane_unreachable" })));
   app.post("/api/control/claude/start", (req, res) => forwardJson(req, res, "/v1/claude/start", "POST").catch(() => res.status(502).json({ ok: false, error: "control_plane_unreachable" })));
   app.post("/api/control/claude/message", (req, res) => forwardJson(req, res, "/v1/claude/message", "POST").catch(() => res.status(502).json({ ok: false, error: "control_plane_unreachable" })));
+  app.get("/api/control/claude/commands", async (req, res) => {
+    if (!(await requireUser(req, res))) return;
+    const query = typeof req.query.q === "string" ? req.query.q.trim().toLowerCase() : "";
+    let native: globalThis.Response | null = null;
+    try {
+      native = await upstream(`/v1/claude/commands?q=${encodeURIComponent(query)}`, { method: "GET" });
+    } catch {
+      native = null;
+    }
+    if (native && native.status !== 404) {
+      await relayJson(native, res);
+      return;
+    }
+
+    // Older Control Plane versions do not expose a commands endpoint yet.
+    // Discover project commands and skills from the live workspace instead of
+    // maintaining a stale hard-coded command list in the dashboard.
+    const roots = [
+      "instabox-24-7-agent/.claude/commands",
+      "instabox-24-7-agent/.claude/skills",
+    ];
+    const commands = new Map<string, { name: string; source: string }>();
+    for (const root of roots) {
+      try {
+        const response = await upstream(`/v1/files?path=${encodeURIComponent(root)}`, { method: "GET" });
+        if (!response.ok) continue;
+        const payload = await response.json() as { entries?: Array<{ name?: string; type?: string }> };
+        for (const entry of payload.entries || []) {
+          if (!entry.name || !entry.type) continue;
+          const base = entry.name.replace(/\.md$/i, "");
+          if (!/^[a-zA-Z0-9][a-zA-Z0-9:_-]*$/.test(base)) continue;
+          if (root.endsWith("/commands") && entry.type !== "file") continue;
+          if (root.endsWith("/skills") && entry.type !== "directory") continue;
+          const command = `/${base}`;
+          if (!query || command.toLowerCase().includes(query) || base.toLowerCase().includes(query)) {
+            commands.set(command, { name: command, source: root.endsWith("/skills") ? "skill" : "project" });
+          }
+        }
+      } catch {
+        // A missing optional discovery directory should not break messaging.
+      }
+    }
+    res.json({ ok: true, commands: Array.from(commands.values()).sort((a, b) => a.name.localeCompare(b.name)) });
+  });
   app.get("/api/control/claude/output", (req, res) => {
     const session = encodeURIComponent(String(req.query.session || "claude"));
     const lines = encodeURIComponent(String(req.query.lines || "240"));

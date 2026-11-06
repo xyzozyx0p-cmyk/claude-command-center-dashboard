@@ -291,6 +291,25 @@ class SDKServer {
       return buildCronUser(userInfo);
     }
 
+    if (session.openId.startsWith("local:")) {
+      const username = session.openId.slice("local:".length);
+      const now = new Date();
+      const localUser = await db.getUserByOpenId(session.openId);
+      return localUser ?? ({
+        id: 0,
+        openId: session.openId,
+        username,
+        passwordHash: null,
+        name: session.name || username,
+        email: null,
+        loginMethod: "password",
+        role: "admin",
+        createdAt: now,
+        updatedAt: now,
+        lastSignedIn: now,
+      } as AuthenticatedUser);
+    }
+
     const sessionUserId = session.openId;
     const signedInAt = new Date();
     let user = await db.getUserByOpenId(sessionUserId);

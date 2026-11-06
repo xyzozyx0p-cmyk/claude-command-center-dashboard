@@ -29,7 +29,26 @@ export async function verifyPassword(password: string, stored: string) {
 }
 
 export async function getLocalUser(username: string) {
-  return db.getUserByUsername(normalizeUsername(username));
+  const normalized = normalizeUsername(username);
+  const databaseUser = await db.getUserByUsername(normalized);
+  if (databaseUser) return databaseUser;
+  if (normalized && normalized === normalizeUsername(process.env.LOCAL_AUTH_USERNAME) && process.env.LOCAL_AUTH_PASSWORD_HASH) {
+    const now = new Date();
+    return {
+      id: 0,
+      openId: `local:${normalized}`,
+      username: normalized,
+      passwordHash: process.env.LOCAL_AUTH_PASSWORD_HASH,
+      name: process.env.LOCAL_AUTH_DISPLAY_NAME || normalized,
+      email: null,
+      loginMethod: "password",
+      role: "admin" as const,
+      createdAt: now,
+      updatedAt: now,
+      lastSignedIn: now,
+    };
+  }
+  return undefined;
 }
 
 export async function authenticateLocalUser(username: string, password: string) {

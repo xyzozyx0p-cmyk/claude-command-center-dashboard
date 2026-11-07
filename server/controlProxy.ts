@@ -11,6 +11,7 @@ function config() {
   return {
     base: (process.env.CONTROL_PLANE_URL || "").replace(/\/+$/, ""),
     token: process.env.CONTROL_PLANE_TOKEN || "",
+    cloudflareToken: process.env.CLOUDFLARE_WATCHDOG_TOKEN || "",
   };
 }
 
@@ -165,9 +166,10 @@ export function registerControlProxy(app: Express, server: import("node:http").S
 
   app.get("/api/control/infrastructure", async (req, res) => {
     if (!(await requireUser(req, res))) return;
+    const cloudflareHeaders = config().cloudflareToken ? { Authorization: `Bearer ${config().cloudflareToken}` } : undefined;
     const checks = await Promise.all([
       fetch(RENDER_WATCHDOG_URL + "/healthz", { signal: AbortSignal.timeout(8000) }).then(r => ({ name: "Render watchdog", ok: r.ok, detail: r.ok ? "reachable" : `HTTP ${r.status}` })).catch(() => ({ name: "Render watchdog", ok: false, detail: "unreachable" })),
-      fetch(CLOUDFLARE_WATCHDOG_URL, { signal: AbortSignal.timeout(8000) }).then(r => ({ name: "Cloudflare watchdog", ok: r.ok, detail: r.ok ? "reachable" : `HTTP ${r.status}` })).catch(() => ({ name: "Cloudflare watchdog", ok: false, detail: "unreachable" })),
+      fetch(CLOUDFLARE_WATCHDOG_URL, { headers: cloudflareHeaders, signal: AbortSignal.timeout(8000) }).then(r => ({ name: "Cloudflare watchdog", ok: r.ok, detail: r.ok ? "reachable" : `HTTP ${r.status}` })).catch(() => ({ name: "Cloudflare watchdog", ok: false, detail: "unreachable" })),
     ]);
     res.json({ ok: true, checks });
   });

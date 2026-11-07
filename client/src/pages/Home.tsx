@@ -121,32 +121,64 @@ export default function Home() {
   const [commandSuggestionIndex, setCommandSuggestionIndex] = useState(0);
   const [commandsLoading, setCommandsLoading] = useState(false);
   const terminalRef = useRef<WebSocket | null>(null);
+  const outputStreamRef = useRef<WebSocket | null>(null);
+  const outputStreamConnecting = useRef(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const connectOutputStream = useCallback(async () => {
+    const current = outputStreamRef.current;
+    if (outputStreamConnecting.current || (current && (current.readyState === WebSocket.OPEN || current.readyState === WebSocket.CONNECTING))) return;
+    outputStreamConnecting.current = true;
+    try {
+      const ticket = await api<{ ticket: string }>("/api/control/ws-ticket", jsonInit({ session: "claude" }));
+      const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+      const socket = new WebSocket(`${protocol}://${window.location.host}/api/control/sessions/claude/ws?ticket=${encodeURIComponent(ticket.ticket)}`);
+      outputStreamRef.current = socket;
+      socket.binaryType = "arraybuffer";
+      socket.onopen = () => {
+        setOutput(currentOutput => currentOutput || "[live stream connected]\n");
+      };
+      socket.onmessage = async event => {
+        const value = typeof event.data === "string" ? event.data : new TextDecoder().decode(event.data instanceof ArrayBuffer ? event.data : await event.data.arrayBuffer());
+        setOutput(currentOutput => `${currentOutput}${value}`.slice(-24000));
+      };
+      socket.onclose = () => {
+        if (outputStreamRef.current === socket) outputStreamRef.current = null;
+      };
+      socket.onerror = () => socket.close();
+    } catch {
+      // The Claude tmux session may not exist yet; the next status refresh retries.
+    } finally {
+      outputStreamConnecting.current = false;
+    }
+  }, []);
 
   const refreshCore = useCallback(async () => {
     const results = await Promise.allSettled([
       api<Status>("/api/control/status"),
       api<ModelsResponse>("/api/control/models"),
       api<InfraResponse>("/api/control/infrastructure"),
-      api<{ output: string }>("/api/control/claude/output?session=claude&lines=240"),
     ]);
-    const [statusResult, modelsResult, infraResult, outputResult] = results;
-    if (statusResult.status === "fulfilled") setStatus(statusResult.value);
+    const [statusResult, modelsResult, infraResult] = results;
+    if (statusResult.status === "fulfilled") {
+      setStatus(statusResult.value);
+      if (statusResult.value.sessions.includes("claude")) {
+        void connectOutputStream();
+      } else {
+        outputStreamRef.current?.close();
+        setOutput("Ожидание вывода persistent-сессии… Запустите Claude, чтобы начать работу.");
+      }
+    }
     if (modelsResult.status === "fulfilled") setModels(modelsResult.value);
     if (infraResult.status === "fulfilled") setInfra(infraResult.value);
-    if (outputResult.status === "fulfilled") {
-      setOutput(outputResult.value.output || "Ожидание вывода persistent-сессии…");
-    } else if (outputResult.reason instanceof Error && outputResult.reason.message === "HTTP 404") {
-      setOutput("Ожидание вывода persistent-сессии… Запустите Claude, чтобы начать работу.");
-    }
     const failedResult = results.find(result => result.status === "rejected");
     if (failedResult && failedResult.status === "rejected") {
       const message = failedResult.reason instanceof Error ? failedResult.reason.message : "Control Plane unavailable";
       if (message !== "HTTP 404") setNotice(message);
     }
-  }, []);
+  }, [connectOutputStream]);
 
   const refreshFiles = useCallback(async (path = filePath) => {
     setFilesLoading(true);
@@ -172,7 +204,10 @@ export default function Home() {
     void refreshFiles();
   }, [auth.isAuthenticated, view, refreshFiles]);
 
-  useEffect(() => () => terminalRef.current?.close(), []);
+  useEffect(() => () => {
+    terminalRef.current?.close();
+    outputStreamRef.current?.close();
+  }, []);
 
   useEffect(() => {
     const match = message.match(/^\/(\S*)$/);

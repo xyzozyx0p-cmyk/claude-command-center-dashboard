@@ -140,7 +140,7 @@ export default function Home() {
     try {
       const ticket = await api<{ ticket: string }>("/api/control/ws-ticket", jsonInit({ session: "claude" }));
       const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-      const socket = new WebSocket(`${protocol}://${window.location.host}/api/control/sessions/claude/ws?ticket=${encodeURIComponent(ticket.ticket)}`);
+      const socket = new WebSocket(`${protocol}://${window.location.host}/api/control/sessions/claude/ws?ticket=${encodeURIComponent(ticket.ticket)}&mode=output`);
       outputStreamRef.current = socket;
       socket.binaryType = "arraybuffer";
       socket.onopen = () => {

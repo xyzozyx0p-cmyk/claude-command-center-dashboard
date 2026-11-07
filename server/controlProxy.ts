@@ -203,7 +203,8 @@ export function registerControlProxy(app: Express, server: import("node:http").S
     wss.handleUpgrade(req, socket, head, client => {
       const { base, token } = config();
       const wsBase = base.replace(/^http/, "ws");
-      const upstreamSocket = new WebSocket(`${wsBase}/v1/sessions/${encodeURIComponent(session)}/ws?token=${encodeURIComponent(token)}`);
+      const mode = url.searchParams.get("mode") === "output" ? "output" : "terminal";
+      const upstreamSocket = new WebSocket(`${wsBase}/v1/sessions/${encodeURIComponent(session)}/ws?token=${encodeURIComponent(token)}&mode=${mode}`);
       const buffered: WebSocket.RawData[] = [];
       client.on("message", data => {
         if (upstreamSocket.readyState === WebSocket.OPEN) upstreamSocket.send(data);

@@ -126,19 +126,25 @@ export default function Home() {
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const refreshCore = useCallback(async () => {
-    try {
-      const [nextStatus, nextModels, nextInfra, nextOutput] = await Promise.all([
-        api<Status>("/api/control/status"),
-        api<ModelsResponse>("/api/control/models"),
-        api<InfraResponse>("/api/control/infrastructure"),
-        api<{ output: string }>("/api/control/claude/output?session=claude&lines=240"),
-      ]);
-      setStatus(nextStatus);
-      setModels(nextModels);
-      setInfra(nextInfra);
-      setOutput(nextOutput.output || "");
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Control Plane unavailable");
+    const results = await Promise.allSettled([
+      api<Status>("/api/control/status"),
+      api<ModelsResponse>("/api/control/models"),
+      api<InfraResponse>("/api/control/infrastructure"),
+      api<{ output: string }>("/api/control/claude/output?session=claude&lines=240"),
+    ]);
+    const [statusResult, modelsResult, infraResult, outputResult] = results;
+    if (statusResult.status === "fulfilled") setStatus(statusResult.value);
+    if (modelsResult.status === "fulfilled") setModels(modelsResult.value);
+    if (infraResult.status === "fulfilled") setInfra(infraResult.value);
+    if (outputResult.status === "fulfilled") {
+      setOutput(outputResult.value.output || "Ожидание вывода persistent-сессии…");
+    } else if (outputResult.reason instanceof Error && outputResult.reason.message === "HTTP 404") {
+      setOutput("Ожидание вывода persistent-сессии… Запустите Claude, чтобы начать работу.");
+    }
+    const failedResult = results.find(result => result.status === "rejected");
+    if (failedResult && failedResult.status === "rejected") {
+      const message = failedResult.reason instanceof Error ? failedResult.reason.message : "Control Plane unavailable";
+      if (message !== "HTTP 404") setNotice(message);
     }
   }, []);
 
